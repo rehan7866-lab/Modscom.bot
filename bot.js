@@ -8,11 +8,40 @@ const ADMIN_ID = 7693439673;
 
 // Unique Welcome Messages List
 const welcomeMessages = [
-  "🎉 Welcome aboard, {name}! Humari family me aapka swagat hai! 🚀",
-  "🔥 {name} just joined the party! Sab log welcome bolo 👋",
-  "🌟 A warm welcome to {name}! Hope you enjoy the group vibes ✨",
-  "💥 Boom! {name} has entered. Let's gooooo! 😎",
-  "😁 Hello {name}! Group me enjoy karo aur active raho 💬"
+  `╔══════════════╗
+      ✨ *WELCOME* ✨
+╚══════════════╝
+Hey {name} 👋  
+🎉 Glad to have you in the group! 🚀`,
+
+  `┏━━━🌀 𝗡𝗘𝗪 𝗠𝗘𝗠𝗕𝗘𝗥 𝗔𝗟𝗘𝗥𝗧 🌀━━━┓
+🌟 {name} just landed!
+Let's make some noise 🔥
+┗━━━━━━━━━━━━━━━━━━┛`,
+
+  `💠 𝑵𝒆𝒘 𝑽𝒊𝒃𝒆 𝑬𝒏𝒕𝒆𝒓𝒆𝒅 💠
+✨ Welcome {name} ✨  
+Hope you enjoy the group 💬`,
+
+  `⚡ BOOM! NEW ENTRY ⚡  
+{name} has joined the squad 🔥  
+💫 Let's welcome them with good vibes!`,
+
+  `🌈 𝓦𝓮𝓵𝓬𝓸𝓶𝓮, {name}! 🌈  
+You’re now part of an awesome community 💙  
+Stay active & enjoy your time here 😄`,
+
+  `🟣 *New Member Detected!* 🟣  
+👤 {name}  
+🎊 Welcome to the family! 💞`,
+
+  `🧿 *A new energy enters the group*  
+✨ Welcome {name}!  
+🔥 May your presence bring more sparkle here.`,
+
+  `💥 *ENTRY SUCCESSFUL!* 💥  
+{name} has joined the conversation 🤝  
+Let’s get this party started 🎉`
 ];
 
 // Random welcome message function

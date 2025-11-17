@@ -1,12 +1,11 @@
 {
-  "name": "telegram-bot",
+  "name": "telegram-multi-welcome-bot",
   "version": "1.0.0",
-  "type": "module",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
   },
   "dependencies": {
-    "telegraf": "^4.15.0"
+    "node-telegram-bot-api": "^0.61.0"
   }
 }

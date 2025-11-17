@@ -1,5 +1,3 @@
 node_modules/
+database.json
 .env
-npm-debug.log
-yarn-error.log
-.DS_Store

@@ -1,112 +1,83 @@
-import { Telegraf } from "telegraf";
+import TelegramBot from "node-telegram-bot-api";
+import fs from "fs";
 
-// BOT TOKEN Render env me rahega
-const BOT_TOKEN = process.env.BOT_TOKEN;
+// Bot init
+const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
-// ADMIN ID code ke andar hardcoded as you requested
+// ADMIN ID
 const ADMIN_ID = 7693439673;
 
-// Unique Welcome Messages List
-const welcomeMessages = [
-  `╔══════════════╗
-      ✨ *WELCOME* ✨
-╚══════════════╝
-Hey {name} 👋  
-🎉 Glad to have you in the group! 🚀`,
+// Stylish Frame Templates
+const frames = [
+  `✨✨ *WELCOME FRAME* ✨✨
+╔════════════════════╗
+🌟 *Welcome, {name}!* 🌟
+╚════════════════════╝
+😄 Enjoy your stay!`,
 
-  `┏━━━🌀 𝗡𝗘𝗪 𝗠𝗘𝗠𝗕𝗘𝗥 𝗔𝗟𝗘𝗥𝗧 🌀━━━┓
-🌟 {name} just landed!
-Let's make some noise 🔥
-┗━━━━━━━━━━━━━━━━━━┛`,
+  `💛✨ *Golden Entry Alert!* ✨💛
 
-  `💠 𝑵𝒆𝒘 𝑽𝒊𝒃𝒆 𝑬𝒏𝒕𝒆𝒓𝒆𝒅 💠
-✨ Welcome {name} ✨  
-Hope you enjoy the group 💬`,
+👑 {name} has joined the kingdom!
+⚡ Let the vibe begin!`,
 
-  `⚡ BOOM! NEW ENTRY ⚡  
-{name} has joined the squad 🔥  
-💫 Let's welcome them with good vibes!`,
+  `🌈💫 *New Member Arrived!* 💫🌈
 
-  `🌈 𝓦𝓮𝓵𝓬𝓸𝓶𝓮, {name}! 🌈  
-You’re now part of an awesome community 💙  
-Stay active & enjoy your time here 😄`,
+🌀 Welcome {name}!  
+🔥 Aapke aane se group aur lit ho gaya!`,
 
-  `🟣 *New Member Detected!* 🟣  
-👤 {name}  
-🎊 Welcome to the family! 💞`,
+  `🚀🌟 *Blast Entry!* 🌟🚀
 
-  `🧿 *A new energy enters the group*  
-✨ Welcome {name}!  
-🔥 May your presence bring more sparkle here.`,
+🔥 {name} just landed!  
+✨ Get ready for amazing vibes!`,
 
-  `💥 *ENTRY SUCCESSFUL!* 💥  
-{name} has joined the conversation 🤝  
-Let’s get this party started 🎉`
+  `💎✨ *Premium Member Joined!* ✨💎  
+
+🎉 Welcome {name}!  
+😎 Aaj group ki shine badh gayi!`
 ];
 
-// Random welcome message function
-function getWelcomeText(name) {
-  return welcomeMessages[
-    Math.floor(Math.random() * welcomeMessages.length)
-  ].replace("{name}", name);
+// Random stylish welcome
+function getWelcome(name) {
+  const frame = frames[Math.floor(Math.random() * frames.length)];
+  return frame.replace("{name}", name);
 }
 
-const bot = new Telegraf(BOT_TOKEN);
+// Trigger on new member join
+bot.on("new_chat_members", (msg) => {
+  const name = msg.new_chat_members[0].first_name;
+  const chatId = msg.chat.id;
 
-// New Member Welcome
-bot.on("new_chat_members", async (ctx) => {
-  const member = ctx.message.new_chat_members[0];
-  const name = member.first_name || "New Member";
-
-  await ctx.reply(getWelcomeText(name));
+  bot.sendMessage(chatId, getWelcome(name), {
+    parse_mode: "Markdown"
+  });
 });
 
-// Admin Panel
-bot.command("panel", (ctx) => {
-  if (ctx.from.id !== ADMIN_ID)
-    return ctx.reply("❌ Sirf admin access kar sakta hai.");
-    
-  ctx.reply(
-    "🛠 *Admin Panel*\n\n" +
-    "1️⃣ /say <msg> – Group me message bhejo\n" +
-    "2️⃣ /members – Group members count\n" +
-    "3️⃣ /welcome – Test welcome",
-    { parse_mode: "Markdown" }
-  );
+// ADMIN PANEL
+bot.onText(/\/panel/, (msg) => {
+  if (msg.from.id !== ADMIN_ID) return;
+
+  bot.sendMessage(msg.chat.id, `👑 *Admin Panel*  
+Choose your action:  
+1️⃣ /msg - Send message to group  
+2️⃣ /photo - Send photo  
+3️⃣ /welcome - Test welcome message`, {
+    parse_mode: "Markdown"
+  });
 });
 
-// Say command
-bot.command("say", (ctx) => {
-  if (ctx.from.id !== ADMIN_ID)
-    return ctx.reply("❌ Admin only.");
-
-  const msg = ctx.message.text.split(" ").slice(1).join(" ");
-  if (!msg) return ctx.reply("⚠ Usage: /say <msg>");
-
-  ctx.reply(msg);
+// Admin – Send Message Command
+bot.onText(/\/msg (.+)/, (msg, match) => {
+  if (msg.from.id !== ADMIN_ID) return;
+  bot.sendMessage(msg.chat.id, `📢 *Admin Broadcast:*  
+${match[1]}`, { parse_mode: "Markdown" });
 });
 
-// Members count
-bot.command("members", async (ctx) => {
-  if (ctx.from.id !== ADMIN_ID)
-    return ctx.reply("❌ Admin only.");
-
-  const count = await ctx.telegram.getChatMembersCount(ctx.chat.id);
-  ctx.reply(`👥 Total Members: ${count}`);
+// Admin – Test welcome
+bot.onText(/\/welcome/, (msg) => {
+  if (msg.from.id !== ADMIN_ID) return;
+  bot.sendMessage(msg.chat.id, getWelcome("Test User"), {
+    parse_mode: "Markdown"
+  });
 });
 
-// Test welcome
-bot.command("welcome", (ctx) => {
-  if (ctx.from.id !== ADMIN_ID)
-    return ctx.reply("❌ Admin only.");
-
-  ctx.reply(getWelcomeText(ctx.from.first_name));
-});
-
-// Start bot
-bot.launch();
-console.log("🤖 Bot is running on Render...");
-
-// Graceful shutdown
-process.once("SIGINT", () => bot.stop("SIGINT"));
-process.once("SIGTERM", () => bot.stop("SIGTERM"));
+console.log("🔥 Stylish Welcome Bot Running...");

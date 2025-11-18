@@ -1,7 +1,6 @@
 {
   "name": "telegram-group-bot",
-  "version": "1.0.0",
-  "description": "Smart Telegram Group Manager",
+  "version": "1.0.0", 
   "main": "index.js",
   "scripts": {
     "start": "node index.js"

@@ -1,11 +1,13 @@
 {
-  "name": "telegram-multi-welcome-bot",
+  "name": "telegram-group-bot",
   "version": "1.0.0",
-  "main": "bot.js",
+  "description": "Smart Telegram Group Manager",
+  "main": "index.js",
   "scripts": {
-    "start": "node bot.js"
+    "start": "node index.js"
   },
   "dependencies": {
-    "node-telegram-bot-api": "^0.61.0"
+    "node-telegram-bot-api": "^0.61.0",
+    "moment-timezone": "^0.5.43"
   }
 }

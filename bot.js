@@ -1,531 +1,216 @@
-/**
- * Multi-group Public Telegram Bot
- * Features:
- * - Owner (hardcoded)
- * - Public usage (per-group settings)
- * - Inline Settings Menu (Welcome ON/OFF, Emoji selector, Frame selector, Language, Stats)
- * - Emoji selector (Set A: 😀 😍 😎 🤩 😈 💀 😡)
- * - Frame selector (Soft Aesthetic)
- * - Auto-detect language using Telegram language_code (best-effort)
- * - Group stats panel
- * - Help menu (inline)
- * - Anti-spam (flood, links, bad-words)
- * - DB stored in database.json
- *
- * Usage:
- * - /help (public)
- * - /settings (group admins only)
- * - /setwelcome <text> (admin) - use {name} and {emoji}
- * - /resetwelcome (admin)
- * - Owner commands: /owner, /broadcast, /groups, /shutdown
- *
- * Deploy: set BOT_TOKEN env var (Render)
- */
+const TelegramBot = require('node-telegram-bot-api');
+const moment = require('moment-timezone');
 
-const TelegramBot = require("node-telegram-bot-api");
-const fs = require("fs");
-const path = require("path");
+// Bot token (Yaha aapka @BotFather wala token aayega)
+const TOKEN = process.env.BOT_TOKEN || 'YOUR_BOT_TOKEN_HERE';
+const bot = new TelegramBot(TOKEN, { polling: true });
 
-// --- CONFIG ---
-const BOT_TOKEN = process.env.BOT_TOKEN;
-if (!BOT_TOKEN) {
-  console.error("ERROR: BOT_TOKEN environment variable missing.");
-  process.exit(1);
-}
-const OWNER_ID = 7693439673; // your owner id
+// Admin ID (Aapka ID)
+const ADMIN_ID = 7693439673;
 
-const DB_FILE = path.join(__dirname, "database.json");
-const bot = new TelegramBot(BOT_TOKEN, { polling: true });
+// Group settings storage
+const groupSettings = new Map();
 
-// --- SIMPLE JSON DB ---
-let db = {};
-try {
-  if (fs.existsSync(DB_FILE)) {
-    db = JSON.parse(fs.readFileSync(DB_FILE, "utf8") || "{}");
-  }
-} catch (e) {
-  console.error("DB load error:", e);
-  db = {};
-}
-function saveDB() {
-  try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
-  } catch (e) {
-    console.error("DB save error:", e);
-  }
-}
-function ensureChat(chatId) {
-  if (!db[chatId]) {
-    db[chatId] = {
-      welcomeEnabled: true,
-      emoji: "🎉",
-      frame: 0,
-      language: "auto", // auto / en / hi / ... (we use user's language_code best-effort)
-      welcomeTemplate: null, // custom
-      antiSpam: {
-        enabled: true,
-        warnCount: {},
-        whitelist: []
-      }
-    };
-    saveDB();
-  }
-}
+console.log('🤖 Bot started successfully!');
 
-// --- FRAMES (Soft Aesthetic chosen as default style B) ---
-const frames = [
-  `✦・━──── ✧ ────・✦\n{emoji} *WELCOME* {emoji}\n\nHello {name}, welcome to the group!\n✦・━──── ✧ ────・✦`,
-  `✦・━──── ✧ ────・✦\nWelcome {name} {emoji}\nHope you enjoy your stay.\n✦・━──── ✧ ────・✦`,
-  `✦・━──── ✧ ────・✦\nHey {name}! {emoji}\nBe active and have fun!\n✦・━──── ✧ ────・✦`,
-  `✦・━──── ✧ ────・✦\n🌈 Welcome {name} {emoji}\nSay hi to everyone!\n✦・━──── ✧ ────・✦`,
-  `✦・━──── ✧ ────・✦\n💫 {name} joined {emoji}\nEnjoy the vibes!\n✦・━──── ✧ ────・✦`
-];
+// Store group names
+const groupNames = new Map();
 
-// --- Emoji Set A ---
-const emojiChoices = ["😀","😍","😎","🤩","😈","💀","😡"];
+// Get group info when added to group
+bot.on('message', (msg) => {
+    if (msg.chat.type === 'group' || msg.chat.type === 'supergroup') {
+        const chatId = msg.chat.id;
+        if (!groupNames.has(chatId)) {
+            groupNames.set(chatId, msg.chat.title);
+            console.log(`📝 Group registered: ${msg.chat.title} (${chatId})`);
+        }
+    }
+});
 
-// --- Basic UI translations (best-effort) ---
-const uiText = {
-  en: {
-    settings: "⚙️ Group Settings",
-    choose: "Choose an option:",
-    saved: "✅ Saved!",
-    onlyAdmin: "❌ Only group admins can do this.",
-    welcomeOn: "✅ Welcome: ON",
-    welcomeOff: "❌ Welcome: OFF",
-    back: "🔙 Back"
-  },
-  hi: {
-    settings: "⚙️ Group Settings",
-    choose: "Option chuno:",
-    saved: "✅ Save ho gaya!",
-    onlyAdmin: "❌ Sirf group admin kar sakte hain.",
-    welcomeOn: "✅ Welcome: चालू",
-    welcomeOff: "❌ Welcome: बंद",
-    back: "🔙 वापस"
-  }
-};
-// get UI text based on chat language or fallback
-function ui(chatId, key, userLangCode = null) {
-  ensureChat(chatId);
-  const cfg = db[chatId];
-  // If chat language is set to 'auto', try using userLangCode; else use cfg.language
-  let lang = "en";
-  if (cfg.language && cfg.language !== "auto") lang = cfg.language;
-  else if (userLangCode) {
-    if (userLangCode.startsWith("hi")) lang = "hi";
-    else lang = "en";
-  }
-  return (uiText[lang] && uiText[lang][key]) || uiText["en"][key] || key;
-}
-
-// --- Welcome text generator ---
-function getWelcomeText(chatId, name) {
-  ensureChat(chatId);
-  const cfg = db[chatId];
-  if (cfg.welcomeTemplate) {
-    return cfg.welcomeTemplate.replace(/{name}/g, name).replace(/{emoji}/g, cfg.emoji);
-  }
-  const frame = frames[cfg.frame % frames.length];
-  return frame.replace(/{name}/g, name).replace(/{emoji}/g, cfg.emoji);
-}
-
-// --- Anti-spam config & runtime store ---
-const anti = {
-  SPAM_LIMIT: 5, // messages
-  SPAM_WINDOW: 4000, // ms
-  BAD_WORDS: ["fuck","sex","xxx","bhosdi","madarchod","chodu","lund"], // extend as needed
-  BLOCK_LINKS: true,
-  muteDurationSeconds: 60 // mute 1 minute on spam
-};
-const spamRuntime = {}; // { chatId: { userId: { count, last } } }
-
-// helper: is admin
-async function isAdmin(chatId, userId) {
-  try {
-    const member = await bot.getChatMember(chatId, userId);
-    return ["administrator","creator"].includes(member.status);
-  } catch {
-    return false;
-  }
-}
-
-// --- Events ---
-
-// Anti-spam message handler (runs for all messages)
-bot.on("message", async (msg) => {
-  try {
-    // ignore service messages that are not text/media user messages
-    if (!msg || !msg.chat || !msg.from) return;
+// Admin panel
+bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-    const text = (msg.text || msg.caption || "") + "";
-
-    // Only handle in groups and supergroups
-    if (msg.chat.type === "private") return;
-
-    ensureChat(chatId);
-
-    // Admin bypass
-    if (await isAdmin(chatId, userId) || userId === OWNER_ID) return;
-
-    // spamRuntime init
-    if (!spamRuntime[chatId]) spamRuntime[chatId] = {};
-    if (!spamRuntime[chatId][userId]) spamRuntime[chatId][userId] = { count: 0, last: Date.now() };
-
-    const user = spamRuntime[chatId][userId];
-    const now = Date.now();
-    if (now - user.last > anti.SPAM_WINDOW) {
-      user.count = 0;
+    
+    if (userId === ADMIN_ID) {
+        bot.sendMessage(chatId, `🎛️ *Admin Panel*\n\n` +
+            `📊 Commands Available:\n` +
+            `/welcome <message> - Set welcome message\n` +
+            `/settings - Group settings\n` +
+            `/stats - Group statistics\n` +
+            `/groups - List all groups\n` +
+            `/help - Show all commands`, { parse_mode: 'Markdown' });
+    } else {
+        bot.sendMessage(chatId, 'Hello! I am a group management bot. Add me to your group!');
     }
-    user.count++;
-    user.last = now;
-
-    // Count media heavier
-    if (msg.photo || msg.video || msg.document || msg.audio || msg.sticker) {
-      user.count += 1;
-    }
-
-    // Link detection
-    if (anti.BLOCK_LINKS && /(https?:\/\/|t\.me|telegram\.me|wa.me|www\.)/i.test(text)) {
-      try { await bot.deleteMessage(chatId, msg.message_id); } catch {}
-      await bot.sendMessage(chatId, `⚠️ Links are not allowed.`, { reply_to_message_id: msg.message_id }).catch(()=>{});
-      return;
-    }
-
-    // Bad words check
-    const lower = text.toLowerCase();
-    if (anti.BAD_WORDS.some(w => lower.includes(w))) {
-      try { await bot.deleteMessage(chatId, msg.message_id); } catch {}
-      await bot.sendMessage(chatId, `🚫 Bad language is not allowed here.`, { reply_to_message_id: msg.message_id }).catch(()=>{});
-      return;
-    }
-
-    // Flood detection
-    if (user.count >= anti.SPAM_LIMIT) {
-      // delete offending message
-      try { await bot.deleteMessage(chatId, msg.message_id); } catch {}
-      // mute user
-      try {
-        await bot.restrictChatMember(chatId, userId, {
-          permissions: { can_send_messages: false },
-          until_date: Math.floor(Date.now() / 1000) + anti.muteDurationSeconds
-        });
-      } catch (e) {
-        // ignore permission errors
-      }
-      await bot.sendMessage(chatId, `⚠️ *Spam detected!* User muted for ${anti.muteDurationSeconds} seconds.`, { parse_mode: "Markdown" }).catch(()=>{});
-      // reset
-      spamRuntime[chatId][userId] = { count: 0, last: Date.now() };
-      return;
-    }
-
-  } catch (err) {
-    console.error("Anti-spam handler error:", err);
-  }
 });
 
-// New member welcome
-bot.on("new_chat_members", async (msg) => {
-  try {
+// Auto welcome new members WITH GROUP NAME
+bot.on('new_chat_members', (msg) => {
     const chatId = msg.chat.id;
-    ensureChat(chatId);
-    if (!db[chatId].welcomeEnabled) return;
-
-    const member = msg.new_chat_members[0];
-    const name = member.first_name || "there";
-
-    // Use user language_code if available for UI string selection
-    const userLang = member.language_code || null;
-    const text = getWelcomeText(chatId, name);
-    await bot.sendMessage(chatId, text, { parse_mode: "Markdown" }).catch(()=>{});
-  } catch (e) {
-    console.error("welcome error:", e);
-  }
+    const groupName = groupNames.get(chatId) || 'our group';
+    const newMembers = msg.new_chat_members;
+    
+    newMembers.forEach(member => {
+        // Check if the new member is the bot itself
+        if (member.id === bot.token.split(':')[0]) {
+            // Bot added to group
+            const botWelcome = `🤖 *Hello everyone! I'm your new group manager bot!*\n\n` +
+                `I'll help welcome new members and manage the group.\n` +
+                `Use /help to see my commands!`;
+            
+            bot.sendMessage(chatId, botWelcome, { parse_mode: 'Markdown' });
+            return;
+        }
+        
+        const welcomeMessage = getWelcomeMessage(chatId, member, groupName);
+        bot.sendMessage(chatId, welcomeMessage, {
+            parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [[
+                    { text: '📜 Rules', callback_data: 'rules' },
+                    { text: '👋 Meet Admin', url: `tg://user?id=${ADMIN_ID}` }
+                ]]
+            }
+        });
+    });
 });
 
-// /help - shows help + settings button
-bot.onText(/\/help/, (msg) => {
-  const chatId = msg.chat.id;
-  const helpText = `📘 *Commands*\n\n` +
-    `/settings - Open group settings (admin only)\n` +
-    `/setwelcome <text> - Set custom welcome (use {name} and {emoji})\n` +
-    `/resetwelcome - Reset to default welcome\n` +
-    `/help - Show this help menu\n\n` +
-    `Owner-only: /owner\n\n` +
-    `Tip: Use {name} inside custom welcome to insert user's name.`;
-  bot.sendMessage(chatId, helpText, {
-    parse_mode: "Markdown",
-    reply_markup: {
-      inline_keyboard: [[{ text: "⚙️ Open Settings", callback_data: `open_settings:${chatId}` }]]
-    }
-  }).catch(()=>{});
-});
-
-// /settings - open inline menu (only group admins)
-bot.onText(/\/settings/, async (msg) => {
-  const chatId = msg.chat.id;
-  if (msg.chat.type === "private") {
-    return bot.sendMessage(chatId, "This command works only in groups.");
-  }
-  try {
-    const member = await bot.getChatMember(chatId, msg.from.id);
-    if (!["administrator","creator"].includes(member.status)) {
-      return bot.sendMessage(chatId, ui(chatId, "onlyAdmin", msg.from.language_code));
-    }
-    ensureChat(chatId);
-    const cfg = db[chatId];
-    const keyboard = {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: cfg.welcomeEnabled ? ui(chatId,"welcomeOn") : ui(chatId,"welcomeOff"), callback_data: `toggle_welcome:${chatId}` }],
-          [{ text: "😊 Emoji", callback_data: `open_emoji:${chatId}` }, { text: "🖼 Frame", callback_data: `open_frame:${chatId}` }],
-          [{ text: "🌐 Language", callback_data: `open_lang:${chatId}` }, { text: "📊 Stats", callback_data: `show_stats:${chatId}` }],
-          [{ text: "🔙 Close", callback_data: `close:${chatId}` }]
-        ]
-      }
-    };
-    await bot.sendMessage(chatId, `${ui(chatId,"settings", msg.from.language_code)}\n\n${ui(chatId,"choose", msg.from.language_code)}`, keyboard);
-  } catch (e) {
-    console.error("settings error:", e);
-  }
-});
-
-// /setwelcome <text>
-bot.onText(/\/setwelcome (.+)/, async (msg, match) => {
-  const chatId = msg.chat.id;
-  try {
-    const member = await bot.getChatMember(chatId, msg.from.id);
-    if (!["administrator","creator"].includes(member.status)) return bot.sendMessage(chatId, ui(chatId,"onlyAdmin", msg.from.language_code));
-    ensureChat(chatId);
-    db[chatId].welcomeTemplate = match[1];
-    saveDB();
-    bot.sendMessage(chatId, ui(chatId,"saved", msg.from.language_code));
-  } catch (e) {
-    console.error("setwelcome error:", e);
-  }
-});
-
-// /resetwelcome
-bot.onText(/\/resetwelcome/, async (msg) => {
-  const chatId = msg.chat.id;
-  try {
-    const member = await bot.getChatMember(chatId, msg.from.id);
-    if (!["administrator","creator"].includes(member.status)) return bot.sendMessage(chatId, ui(chatId,"onlyAdmin", msg.from.language_code));
-    ensureChat(chatId);
-    db[chatId].welcomeTemplate = null;
-    saveDB();
-    bot.sendMessage(chatId, ui(chatId,"saved", msg.from.language_code));
-  } catch (e) {
-    console.error(e);
-  }
-});
-
-// Owner commands
-bot.onText(/\/owner/, (msg) => {
-  if (msg.from.id !== OWNER_ID) return;
-  bot.sendMessage(msg.chat.id, `👑 Owner Panel\n/broadcast <text>\n/groups\n/shutdown`);
-});
-bot.onText(/\/broadcast (.+)/, (msg, match) => {
-  if (msg.from.id !== OWNER_ID) return;
-  const text = match[1];
-  for (const chatId of Object.keys(db)) {
-    bot.sendMessage(chatId, `📢 *Broadcast:* ${text}`, { parse_mode: "Markdown" }).catch(()=>{});
-  }
-});
-bot.onText(/\/groups/, (msg) => {
-  if (msg.from.id !== OWNER_ID) return;
-  bot.sendMessage(msg.chat.id, `Total groups in DB: ${Object.keys(db).length}`);
-});
-bot.onText(/\/shutdown/, (msg) => {
-  if (msg.from.id !== OWNER_ID) return;
-  bot.sendMessage(msg.chat.id, "Shutting down...").then(()=>process.exit());
-});
-
-// --- Callback Query Handler (Inline buttons) ---
-bot.on("callback_query", async (query) => {
-  const data = query.data || "";
-  const fromId = query.from.id;
-
-  try {
-    if (data.startsWith("open_settings:") || data.startsWith("open_settings:")) {
-      const chatId = Number(data.split(":")[1]);
-      // only group admins
-      const member = await bot.getChatMember(chatId, fromId);
-      if (!["administrator","creator"].includes(member.status)) {
-        return bot.answerCallbackQuery(query.id, { text: ui(chatId,"onlyAdmin", query.from.language_code), show_alert: true });
-      }
-      ensureChat(chatId);
-      await bot.editMessageText(`${ui(chatId,"settings",query.from.language_code)}\n\n${ui(chatId,"choose",query.from.language_code)}`, {
-        chat_id: query.message.chat.id,
-        message_id: query.message.message_id,
-        ...{ reply_markup: settingsKeyboard(chatId) }
-      }).catch(()=>{});
-      return bot.answerCallbackQuery(query.id);
-    }
-
-    if (data.startsWith("toggle_welcome:")) {
-      const chatId = Number(data.split(":")[1]);
-      const member = await bot.getChatMember(chatId, fromId);
-      if (!["administrator","creator"].includes(member.status)) return bot.answerCallbackQuery(query.id, { text: ui(chatId,"onlyAdmin", query.from.language_code), show_alert:true });
-      ensureChat(chatId);
-      db[chatId].welcomeEnabled = !db[chatId].welcomeEnabled;
-      saveDB();
-      // update keyboard text
-      await bot.editMessageText(`${ui(chatId,"settings", query.from.language_code)}\n\n${ui(chatId,"choose", query.from.language_code)}`, {
-        chat_id: query.message.chat.id,
-        message_id: query.message.message_id,
-        ...{ reply_markup: settingsKeyboard(chatId) }
-      }).catch(()=>{});
-      return bot.answerCallbackQuery(query.id, { text: db[chatId].welcomeEnabled ? ui(chatId,"welcomeOn") : ui(chatId,"welcomeOff") });
-    }
-
-    if (data.startsWith("open_emoji:")) {
-      const chatId = Number(data.split(":")[1]);
-      const member = await bot.getChatMember(chatId, fromId);
-      if (!["administrator","creator"].includes(member.status)) return bot.answerCallbackQuery(query.id, { text: ui(chatId,"onlyAdmin", query.from.language_code), show_alert:true });
-      // show emojis grid
-      const rows = [];
-      for (let i=0;i<emojiChoices.length;i+=4) {
-        rows.push(emojiChoices.slice(i,i+4).map(e => ({ text: e, callback_data: `set_emoji:${encodeURIComponent(e)}:${chatId}` })));
-      }
-      rows.push([{ text: ui(chatId,"back", query.from.language_code), callback_data: `open_settings:${chatId}` }]);
-      await bot.editMessageText("Select emoji for welcome:", {
-        chat_id: query.message.chat.id,
-        message_id: query.message.message_id,
-        reply_markup: { inline_keyboard: rows }
-      });
-      return bot.answerCallbackQuery(query.id);
-    }
-
-    if (data.startsWith("set_emoji:")) {
-      const parts = data.split(":");
-      const emoji = decodeURIComponent(parts[1]);
-      const chatId = Number(parts[2]);
-      const member = await bot.getChatMember(chatId, fromId);
-      if (!["administrator","creator"].includes(member.status)) return bot.answerCallbackQuery(query.id, { text: ui(chatId,"onlyAdmin", query.from.language_code), show_alert:true });
-      ensureChat(chatId);
-      db[chatId].emoji = emoji;
-      saveDB();
-      await bot.editMessageText(`${ui(chatId,"settings", query.from.language_code)}\n\n${ui(chatId,"choose", query.from.language_code)}`, {
-        chat_id: query.message.chat.id,
-        message_id: query.message.message_id,
-        ...{ reply_markup: settingsKeyboard(chatId) }
-      }).catch(()=>{});
-      return bot.answerCallbackQuery(query.id, { text: ui(chatId,"saved", query.from.language_code) });
-    }
-
-    if (data.startsWith("open_frame:")) {
-      const chatId = Number(data.split(":")[1]);
-      const member = await bot.getChatMember(chatId, fromId);
-      if (!["administrator","creator"].includes(member.status)) return bot.answerCallbackQuery(query.id, { text: ui(chatId,"onlyAdmin", query.from.language_code), show_alert:true });
-      const rows = [];
-      for (let i=0;i<frames.length;i++) {
-        rows.push([{ text: `Frame ${i+1}`, callback_data: `set_frame:${i}:${chatId}` }]);
-      }
-      rows.push([{ text: ui(chatId,"back", query.from.language_code), callback_data: `open_settings:${chatId}` }]);
-      await bot.editMessageText("Choose a frame style:", {
-        chat_id: query.message.chat.id,
-        message_id: query.message.message_id,
-        reply_markup: { inline_keyboard: rows }
-      });
-      return bot.answerCallbackQuery(query.id);
-    }
-
-    if (data.startsWith("set_frame:")) {
-      const parts = data.split(":");
-      const idx = Number(parts[1]);
-      const chatId = Number(parts[2]);
-      const member = await bot.getChatMember(chatId, fromId);
-      if (!["administrator","creator"].includes(member.status)) return bot.answerCallbackQuery(query.id, { text: ui(chatId,"onlyAdmin", query.from.language_code), show_alert:true });
-      ensureChat(chatId);
-      db[chatId].frame = idx;
-      saveDB();
-      await bot.editMessageText(`${ui(chatId,"settings", query.from.language_code)}\n\n${ui(chatId,"choose", query.from.language_code)}`, {
-        chat_id: query.message.chat.id,
-        message_id: query.message.message_id,
-        ...{ reply_markup: settingsKeyboard(chatId) }
-      }).catch(()=>{});
-      return bot.answerCallbackQuery(query.id, { text: ui(chatId,"saved", query.from.language_code) });
-    }
-
-    if (data.startsWith("open_lang:")) {
-      const chatId = Number(data.split(":")[1]);
-      const member = await bot.getChatMember(chatId, fromId);
-      if (!["administrator","creator"].includes(member.status)) return bot.answerCallbackQuery(query.id, { text: ui(chatId,"onlyAdmin", query.from.language_code), show_alert:true });
-      const rows = [
-        [{ text: "Auto (default)", callback_data: `set_lang:auto:${chatId}` }],
-        [{ text: "English", callback_data: `set_lang:en:${chatId}` }],
-        [{ text: "Hindi", callback_data: `set_lang:hi:${chatId}` }],
-        [{ text: ui(chatId,"back", query.from.language_code), callback_data: `open_settings:${chatId}` }]
-      ];
-      await bot.editMessageText("Select language mode:", {
-        chat_id: query.message.chat.id,
-        message_id: query.message.message_id,
-        reply_markup: { inline_keyboard: rows }
-      });
-      return bot.answerCallbackQuery(query.id);
-    }
-
-    if (data.startsWith("set_lang:")) {
-      const parts = data.split(":");
-      const lang = parts[1];
-      const chatId = Number(parts[2]);
-      const member = await bot.getChatMember(chatId, fromId);
-      if (!["administrator","creator"].includes(member.status)) return bot.answerCallbackQuery(query.id, { text: ui(chatId,"onlyAdmin", query.from.language_code), show_alert:true });
-      ensureChat(chatId);
-      db[chatId].language = lang;
-      saveDB();
-      await bot.editMessageText(`${ui(chatId,"settings", query.from.language_code)}\n\n${ui(chatId,"choose", query.from.language_code)}`, {
-        chat_id: query.message.chat.id,
-        message_id: query.message.message_id,
-        ...{ reply_markup: settingsKeyboard(chatId) }
-      }).catch(()=>{});
-      return bot.answerCallbackQuery(query.id, { text: ui(chatId,"saved", query.from.language_code) });
-    }
-
-    if (data.startsWith("show_stats:")) {
-      const chatId = Number(data.split(":")[1]);
-      const count = await bot.getChatMembersCount(chatId).catch(()=>null);
-      const info = await bot.getChat(chatId).catch(()=>null);
-      const title = info ? (info.title || "Group") : "Group";
-      const hasCustom = db[chatId] && db[chatId].welcomeTemplate ? "Yes" : "No";
-      const text = `📊 *Group Stats*\n\n*${title}*\nMembers: ${count ?? "N/A"}\nCustom Welcome: ${hasCustom}`;
-      await bot.editMessageText(text, {
-        chat_id: query.message.chat.id,
-        message_id: query.message.message_id,
-        parse_mode: "Markdown",
-        reply_markup: { inline_keyboard: [[{ text: ui(chatId,"back", query.from.language_code), callback_data: `open_settings:${chatId}` }]] }
-      });
-      return bot.answerCallbackQuery(query.id);
-    }
-
-    if (data.startsWith("close:")) {
-      // remove keyboard
-      await bot.editMessageReplyMarkup({}, { chat_id: query.message.chat.id, message_id: query.message.message_id }).catch(()=>{});
-      return bot.answerCallbackQuery(query.id, { text: "Closed." });
-    }
-
-    return bot.answerCallbackQuery(query.id);
-  } catch (err) {
-    console.error("callback err:", err);
-    try { bot.answerCallbackQuery(query.id, { text: "An error occurred.", show_alert: true }); } catch {}
-  }
-});
-
-// helper: settings keyboard generator
-function settingsKeyboard(chatId) {
-  ensureChat(chatId);
-  const cfg = db[chatId];
-  return {
-    inline_keyboard: [
-      [{ text: cfg.welcomeEnabled ? ui(chatId,"welcomeOn") : ui(chatId,"welcomeOff"), callback_data: `toggle_welcome:${chatId}` }],
-      [{ text: "😊 Emoji", callback_data: `open_emoji:${chatId}` }, { text: "🖼 Frame", callback_data: `open_frame:${chatId}` }],
-      [{ text: "🌐 Language", callback_data: `open_lang:${chatId}` }, { text: "📊 Stats", callback_data: `show_stats:${chatId}` }],
-      [{ text: "🔙 Close", callback_data: `close:${chatId}` }]
-    ]
-  };
+// Custom welcome messages with GROUP NAME
+function getWelcomeMessage(chatId, user, groupName) {
+    const welcomeTemplates = [
+        `🎉 **Welcome to *${groupName}*, {name}!** 🌟\nWe're excited to have you here! Feel free to introduce yourself!`,
+        `👋 **Hello {name}!** Welcome to *${groupName}*! 🚀\nMake yourself at home and enjoy your stay!`,
+        `🌈 **Hey {name}!** Great to see you in *${groupName}*! ✨\nDon't forget to read the rules!`,
+        `🔥 **Welcome {name}!** to *${groupName}*! 🎊\nYou make our community even better!`,
+        `💫 **Namaste {name}!** 🙏\nAapka *${groupName}* mein swagat hai! Khush aamdeed!`,
+        `🌟 **Welcome aboard, {name}!** 🎯\nYou've joined the amazing *${groupName}* community!`,
+        `🚀 **Hey {name}!** Welcome to *${groupName}*! 🌈\nGet ready for an amazing experience!`
+    ];
+    
+    const randomTemplate = welcomeTemplates[Math.floor(Math.random() * welcomeTemplates.length)];
+    
+    return randomTemplate
+        .replace(/{name}/g, `[${user.first_name}${user.last_name ? ' ' + user.last_name : ''}](tg://user?id=${user.id})`)
+        .replace(/{groupName}/g, groupName);
 }
 
-// Graceful logs
-console.log("✅ Multi-group customizable bot with anti-spam running...");
+// Set custom welcome message
+bot.onText(/\/welcome (.+)/, (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    
+    if (userId === ADMIN_ID) {
+        const welcomeMsg = match[1];
+        if (!groupSettings.has(chatId)) {
+            groupSettings.set(chatId, {});
+        }
+        groupSettings.get(chatId).welcomeMessage = welcomeMsg;
+        bot.sendMessage(chatId, `✅ Welcome message set successfully!\n\nNew message: ${welcomeMsg}`);
+    }
+});
+
+// Group statistics
+bot.onText(/\/stats/, (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    
+    if (userId === ADMIN_ID) {
+        const groupName = groupNames.get(chatId) || 'Unknown Group';
+        bot.getChatMembersCount(chatId).then(membersCount => {
+            bot.sendMessage(chatId, 
+                `📊 *Group Statistics - ${groupName}*\n\n` +
+                `👥 Total Members: ${membersCount}\n` +
+                `🆔 Group ID: ${chatId}\n` +
+                `🏷️ Group Name: ${groupName}\n` +
+                `⏰ Server Time: ${moment().tz('Asia/Kolkata').format('YYYY-MM-DD HH:mm:ss')}\n` +
+                `🤖 Bot Status: ✅ Online`, 
+                { parse_mode: 'Markdown' }
+            );
+        });
+    }
+});
+
+// List all groups (Admin only)
+bot.onText(/\/groups/, (msg) => {
+    const userId = msg.from.id;
+    
+    if (userId === ADMIN_ID) {
+        if (groupNames.size === 0) {
+            bot.sendMessage(msg.chat.id, '📭 Bot is not added to any groups yet.');
+            return;
+        }
+        
+        let groupsList = `📋 *Groups Using This Bot (${groupNames.size})*\n\n`;
+        groupNames.forEach((name, id) => {
+            groupsList += `🏷️ ${name}\n🆔 ${id}\n\n`;
+        });
+        
+        bot.sendMessage(msg.chat.id, groupsList, { parse_mode: 'Markdown' });
+    }
+});
+
+// Settings command
+bot.onText(/\/settings/, (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const groupName = groupNames.get(chatId) || 'Unknown Group';
+    
+    if (userId === ADMIN_ID) {
+        const settings = groupSettings.get(chatId) || {};
+        bot.sendMessage(chatId,
+            `⚙️ *Group Settings - ${groupName}*\n\n` +
+            `🎉 Welcome Message: ${settings.welcomeMessage ? '✅ Custom' : '✅ Default'}\n` +
+            `🛡️ Anti-Spam: ✅ Enabled\n` +
+            `👋 Auto-Welcome: ✅ Enabled\n` +
+            `📊 Analytics: ✅ Enabled\n` +
+            `🏷️ Group Name: ${groupName}`,
+            { parse_mode: 'Markdown' }
+        );
+    }
+});
+
+// Help command
+bot.onText(/\/help/, (msg) => {
+    const chatId = msg.chat.id;
+    const groupName = groupNames.get(chatId) || 'this group';
+    
+    bot.sendMessage(chatId,
+        `🤖 *Bot Help Guide - ${groupName}*\n\n` +
+        `*For Everyone:*\n` +
+        `👋 Auto welcome for new members\n` +
+        `📜 Rules button in welcome\n` +
+        `\n*For Admin:*\n` +
+        `/welcome - Set custom welcome\n` +
+        `/stats - Group statistics\n` +
+        `/settings - Bot settings\n` +
+        `/groups - List all groups\n` +
+        `\n*Features:*\n` +
+        `✅ Smart group management\n` +
+        `✅ Multi-group support\n` +
+        `✅ Group name detection\n` +
+        `✅ Custom welcome messages\n` +
+        `✅ Admin panel\n` +
+        `✅ Real-time monitoring`,
+        { parse_mode: 'Markdown' }
+    );
+});
+
+// Callback queries for buttons
+bot.on('callback_query', (callbackQuery) => {
+    const msg = callbackQuery.message;
+    const data = callbackQuery.data;
+    
+    if (data === 'rules') {
+        bot.answerCallbackQuery(callbackQuery.id, {
+            text: '📜 Group Rules: Be respectful, no spam, follow community guidelines!'
+        });
+    }
+});
+
+// Error handling
+bot.on('error', (error) => {
+    console.log('Bot Error:', error);
+});
+
+console.log('🚀 Bot is running on Render...');

@@ -1,97 +1,33 @@
-# Node.js dependencies
+# Node modules
 node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-package-lock.json
-yarn.lock
-
-# Environment variables
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
 
 # Logs
-logs
+logs/
 *.log
-
-# Runtime data
-pids
+*.tmp
+*.bak
+*.swp
 *.pid
-*.seed
-*.pid.lock
 
-# Coverage directory used by tools like istanbul
-coverage/
-.nyc_output
+# Env variables (VERY IMPORTANT)
+.env
+.env.local
+.env.*.local
 
-# Dependency directories
-node_modules/
-jspm_packages/
-
-# Optional npm cache directory
-.npm
-
-# Optional REPL history
-.node_repl_history
-
-# Output of 'npm pack'
-*.tgz
-
-# Yarn Integrity file
-.yarn-integrity
-
-# Database files
-*.db
-*.sqlite
-*.sqlite3
-database/
-*.db-journal
-
-# Telegram session files
-*.session
-*.session-journal
-
-# OS generated files
+# OS system files
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
 
-# IDE and editor files
+# VSCode settings
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
 
-# Runtime data
-pids
-*.pid
-*.seed
-
-# Build directories
-build/
+# Production build (if any future build process is added)
 dist/
-out/
+build/
 
-# Temporary folders
-tmp/
-temp/
-
-# API keys and sensitive data
-config.json
-keys.json
-secrets.json
-credentials.json
-
-# Bot specific
-bot_data/
-user_data/
-session/
-*.session
+# Render cache folders (in some local setups)
+.cache/

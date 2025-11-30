@@ -1,17 +1,16 @@
 {
-  "name": "ultra-bomber-js",
+  "name": "telegram-num-bot",
   "version": "1.0.0",
-  "description": "Ultra SMS and Call Bomber",
-  "main": "server.js",
+  "description": "Telegram bot that calls the provided OSINT API when /num is used",
+  "main": "index.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node index.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "node-telegram-bot-api": "^0.64.0",
-    "axios": "^1.6.0"
+    "axios": "^1.5.0",
+    "telegraf": "^4.12.3"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": "18.x"
   }
 }
